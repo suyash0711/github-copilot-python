@@ -5,6 +5,21 @@ SIZE = 9
 EMPTY = 0
 MINIMUM_CLUES = 17
 MAX_REMOVAL_ATTEMPTS = 10
+DIFFICULTY_CLUES = {
+    "easy": 40,
+    "medium": 35,
+    "hard": 30,
+}
+
+
+def clues_for_difficulty(difficulty):
+    try:
+        return DIFFICULTY_CLUES[difficulty]
+    except (KeyError, TypeError):
+        valid_difficulties = ", ".join(DIFFICULTY_CLUES)
+        raise ValueError(
+            f"difficulty must be one of: {valid_difficulties}"
+        ) from None
 
 def deep_copy(board):
     return copy.deepcopy(board)

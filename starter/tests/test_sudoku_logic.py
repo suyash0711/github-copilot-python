@@ -159,3 +159,26 @@ def test_generate_puzzle_returns_matching_puzzle_and_valid_solution(
         for col in range(sudoku_logic.SIZE):
             if puzzle[row][col] != sudoku_logic.EMPTY:
                 assert puzzle[row][col] == solution[row][col]
+
+
+@pytest.mark.parametrize(
+    ("difficulty", "expected_clues"),
+    [("easy", 40), ("medium", 35), ("hard", 30)],
+)
+def test_generate_puzzle_is_unique_at_each_difficulty_target(
+    difficulty, expected_clues
+):
+    clues = sudoku_logic.clues_for_difficulty(difficulty)
+
+    assert clues == expected_clues
+    puzzle, solution = sudoku_logic.generate_puzzle(clues)
+
+    assert_valid_sudoku(solution)
+    assert sum(value != sudoku_logic.EMPTY for row in puzzle for value in row) == clues
+    assert sudoku_logic.count_solutions(puzzle) == 1
+
+
+@pytest.mark.parametrize("difficulty", ["Easy", "expert", "", None])
+def test_clues_for_difficulty_rejects_invalid_values(difficulty):
+    with pytest.raises(ValueError, match="difficulty must be one of"):
+        sudoku_logic.clues_for_difficulty(difficulty)

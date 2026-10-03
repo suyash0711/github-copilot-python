@@ -15,8 +15,34 @@ def index():
 
 @app.route('/new')
 def new_game():
-    clues = int(request.args.get('clues', 35))
-    puzzle, solution = sudoku_logic.generate_puzzle(clues)
+    difficulty = request.args.get('difficulty')
+    requested_clues = request.args.get('clues')
+
+    if difficulty is not None:
+        try:
+            clues = sudoku_logic.clues_for_difficulty(difficulty)
+        except ValueError as error:
+            return jsonify({'error': str(error)}), 400
+
+        if requested_clues is not None:
+            try:
+                legacy_clues = int(requested_clues)
+            except ValueError:
+                return jsonify({'error': 'clues must be an integer'}), 400
+            if legacy_clues != clues:
+                return jsonify({
+                    'error': 'difficulty and clues parameters conflict'
+                }), 400
+    else:
+        try:
+            clues = int(requested_clues) if requested_clues is not None else 35
+        except ValueError:
+            return jsonify({'error': 'clues must be an integer'}), 400
+
+    try:
+        puzzle, solution = sudoku_logic.generate_puzzle(clues)
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 503
     CURRENT['puzzle'] = puzzle
     CURRENT['solution'] = solution
     return jsonify({'puzzle': puzzle})

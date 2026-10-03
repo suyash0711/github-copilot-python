@@ -26,6 +26,8 @@ def test_index_route_renders_existing_game_controls(client):
 
     assert response.status_code == 200
     assert b"<h1>Sudoku Game</h1>" in response.data
+    assert b'<select id="difficulty" name="difficulty">' in response.data
+    assert b'<option value="medium" selected>Medium</option>' in response.data
     assert b'id="sudoku-board"' in response.data
     assert b'id="new-game"' in response.data
     assert b'id="check-solution"' in response.data
@@ -56,6 +58,69 @@ def test_new_route_returns_generated_puzzle_and_stores_game(
     assert response.get_json() == {"puzzle": puzzle}
     assert received_clues == [expected_clues]
     assert app_module.CURRENT == {"puzzle": puzzle, "solution": solution}
+
+
+@pytest.mark.parametrize(
+    ("difficulty", "expected_clues"),
+    [("easy", 40), ("medium", 35), ("hard", 30)],
+)
+def test_new_route_maps_difficulty_to_clues(
+    client, monkeypatch, difficulty, expected_clues
+):
+    puzzle = [[0 for _ in range(sudoku_logic.SIZE)] for _ in range(sudoku_logic.SIZE)]
+    solution = make_solved_board()
+    received_clues = []
+
+    def fake_generate_puzzle(clues):
+        received_clues.append(clues)
+        return puzzle, solution
+
+    monkeypatch.setattr(
+        app_module.sudoku_logic, "generate_puzzle", fake_generate_puzzle
+    )
+
+    response = client.get("/new", query_string={"difficulty": difficulty})
+
+    assert response.status_code == 200
+    assert response.get_json() == {"puzzle": puzzle}
+    assert received_clues == [expected_clues]
+
+
+@pytest.mark.parametrize("difficulty", ["Easy", "expert", "", "MEDIUM"])
+def test_new_route_rejects_invalid_difficulty(client, difficulty):
+    response = client.get("/new", query_string={"difficulty": difficulty})
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "error": "difficulty must be one of: easy, medium, hard"
+    }
+
+
+def test_new_route_rejects_conflicting_difficulty_and_clues(client):
+    response = client.get(
+        "/new", query_string={"difficulty": "easy", "clues": 35}
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "error": "difficulty and clues parameters conflict"
+    }
+
+
+def test_new_route_handles_bounded_generation_failure(client, monkeypatch):
+    def fail_generation(clues):
+        raise ValueError(f"could not generate a unique puzzle with exactly {clues} clues")
+
+    monkeypatch.setattr(
+        app_module.sudoku_logic, "generate_puzzle", fail_generation
+    )
+
+    response = client.get("/new?difficulty=hard")
+
+    assert response.status_code == 503
+    assert response.get_json() == {
+        "error": "could not generate a unique puzzle with exactly 30 clues"
+    }
 
 
 def test_check_route_reports_error_when_no_game_is_active(client):
@@ -94,3 +159,11 @@ def test_existing_static_assets_are_served(client, asset_path):
 
     assert response.status_code == 200
     assert response.data
+
+
+def test_new_game_frontend_requests_selected_difficulty(client):
+    response = client.get("/static/main.js")
+
+    assert response.status_code == 200
+    assert b"document.getElementById('difficulty').value" in response.data
+    assert b"/new?difficulty=${encodeURIComponent(difficulty)}" in response.data

@@ -48,8 +48,13 @@ function renderPuzzle(puz) {
 }
 
 async function newGame() {
-  const res = await fetch('/new');
+  const difficulty = document.getElementById('difficulty').value;
+  const res = await fetch(`/new?difficulty=${encodeURIComponent(difficulty)}`);
   const data = await res.json();
+  if (!res.ok) {
+    document.getElementById('message').innerText = data.error || 'Could not start a new game.';
+    return;
+  }
   renderPuzzle(data.puzzle);
   document.getElementById('message').innerText = '';
 }
