@@ -23,6 +23,7 @@ function makeElement(tagName) {{
   let className = '';
   let inputValue = '';
   let textContent = '';
+  const attributes = new Map();
   const element = {{
     tagName,
     children: [],
@@ -34,6 +35,8 @@ function makeElement(tagName) {{
     value: '',
     appendChild(child) {{ this.children.push(child); }},
     replaceChildren(...children) {{ this.children = children; }},
+    setAttribute(name, value) {{ attributes.set(name, String(value)); }},
+    getAttribute(name) {{ return attributes.get(name) ?? null; }},
     addEventListener(name, handler) {{ this.listeners[name] = handler; }},
     getElementsByTagName(name) {{
       const matches = this.tagName === name ? [this] : [];
@@ -81,6 +84,8 @@ const timerDisplay = makeElement('p');
 const leaderboardBody = makeElement('tbody');
 const difficulty = makeElement('select');
 difficulty.value = 'medium';
+const themeToggle = makeElement('button');
+const documentRoot = makeElement('html');
 const document = {{
   createElement: makeElement,
   getElementById(id) {{
@@ -89,8 +94,10 @@ const document = {{
     if (id === 'game-timer') return timerDisplay;
     if (id === 'leaderboard-entries') return leaderboardBody;
     if (id === 'difficulty') return difficulty;
+    if (id === 'theme-toggle') return themeToggle;
     return message;
-  }}
+  }},
+  documentElement: documentRoot
 }};
 let clockNow = 0;
 let nextIntervalId = 1;
@@ -114,15 +121,21 @@ const context = {{
 }};
 vm.createContext(context);
 const source = fs.readFileSync({script_path}, 'utf8');
-vm.runInContext(source + '\\nglobalThis.gameplay = {{ renderPuzzle, findConflictingCells, checkSolution, requestHint, newGame, readLeaderboard, renderLeaderboard, recordCompletion, leaderboardKey: LEADERBOARD_KEY, getState: () => ({{ timerStartedAt, elapsedTimeMs, timerInterval, gameCompleted, hintsUsed, currentDifficulty }}) }};', context);
+vm.runInContext(source + '\\nglobalThis.gameplay = {{ renderPuzzle, findConflictingCells, checkSolution, requestHint, newGame, readLeaderboard, renderLeaderboard, recordCompletion, initializeTheme, toggleTheme, leaderboardKey: LEADERBOARD_KEY, themeKey: THEME_KEY, getState: () => ({{ timerStartedAt, elapsedTimeMs, timerInterval, gameCompleted, hintsUsed, currentDifficulty }}) }};', context);
 
 const puzzle = Array.from({{ length: 9 }}, () => Array(9).fill(0));
 puzzle[0][0] = 5;
+puzzle[0][3] = 6;
 context.gameplay.renderPuzzle(puzzle);
 const inputs = board.getElementsByTagName('input');
 assert.equal(inputs.length, 81);
 assert.equal(inputs[0].disabled, true);
 assert.ok(inputs[0].className.includes('prefilled'));
+assert.equal(inputs[0].classList.contains('box-alt'), false);
+assert.equal(inputs[3].classList.contains('box-alt'), true);
+assert.equal(inputs[3].classList.contains('prefilled'), true);
+assert.equal(inputs[27].classList.contains('box-alt'), true);
+assert.equal(inputs[30].classList.contains('box-alt'), false);
 assert.equal(inputs[1].disabled, false);
 assert.ok(!inputs[1].className.includes('prefilled'));
 
@@ -170,11 +183,11 @@ assert.deepEqual([...context.gameplay.findConflictingCells(boardValues)].sort((a
     hintRequest = {{ url, options }};
     return {{
       ok: true,
-      json: async () => ({{ row: 1, col: 1, value: 4, hints_used: 1 }})
+      json: async () => ({{ row: 1, col: 3, value: 4, hints_used: 1 }})
     }};
   }};
   await context.gameplay.requestHint();
-  const hintedCell = inputs[10];
+  const hintedCell = inputs[12];
   assert.equal(hintRequest.url, '/hint');
   assert.equal(hintRequest.options.method, 'POST');
   assert.deepEqual(Object.keys(JSON.parse(hintRequest.options.body)), ['board']);
@@ -182,6 +195,12 @@ assert.deepEqual([...context.gameplay.findConflictingCells(boardValues)].sort((a
   assert.equal(hintedCell.disabled, true);
   assert.equal(hintedCell.classList.contains('hinted'), true);
   assert.equal(hintedCell.classList.contains('prefilled'), false);
+  assert.equal(hintedCell.classList.contains('box-alt'), true);
+  hintedCell.classList.add('invalid');
+  hintedCell.classList.add('incorrect');
+  assert.equal(hintedCell.classList.contains('hinted'), true);
+  assert.equal(hintedCell.classList.contains('invalid'), true);
+  assert.equal(hintedCell.classList.contains('incorrect'), true);
   assert.equal(hintCount.innerText, 'Hints used: 1');
   hintedCell.value = '8';
   hintedCell.listeners.input({{ target: hintedCell }});
@@ -313,6 +332,41 @@ assert.deepEqual([...context.gameplay.findConflictingCells(boardValues)].sort((a
   await context.gameplay.checkSolution();
   assert.equal(context.gameplay.getState().gameCompleted, true);
   assert.equal(intervals.size, 0);
+
+  storageFails = false;
+  context.gameplay.initializeTheme();
+  assert.equal(documentRoot.getAttribute('data-theme'), 'light');
+  assert.equal(themeToggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(themeToggle.getAttribute('aria-label'), 'Switch to dark mode');
+  const leaderboardBeforeThemeToggle = storage.get(storageKey);
+
+  storage.set(context.gameplay.themeKey, 'dark');
+  context.gameplay.initializeTheme();
+  assert.equal(documentRoot.getAttribute('data-theme'), 'dark');
+  assert.equal(themeToggle.getAttribute('aria-pressed'), 'true');
+  themeToggle.listeners.click = context.gameplay.toggleTheme;
+  themeToggle.listeners.click();
+  assert.equal(documentRoot.getAttribute('data-theme'), 'light');
+  assert.equal(themeToggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(storage.get(context.gameplay.themeKey), 'light');
+  assert.equal(storage.get(storageKey), leaderboardBeforeThemeToggle);
+  themeToggle.listeners.click();
+  assert.equal(documentRoot.getAttribute('data-theme'), 'dark');
+  assert.equal(themeToggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(storage.get(context.gameplay.themeKey), 'dark');
+  assert.equal(storage.get(storageKey), leaderboardBeforeThemeToggle);
+
+  storage.set(context.gameplay.themeKey, 'sepia');
+  context.gameplay.initializeTheme();
+  assert.equal(documentRoot.getAttribute('data-theme'), 'light');
+  assert.equal(themeToggle.getAttribute('aria-pressed'), 'false');
+
+  storageFails = true;
+  context.gameplay.initializeTheme();
+  assert.equal(documentRoot.getAttribute('data-theme'), 'light');
+  themeToggle.listeners.click();
+  assert.equal(documentRoot.getAttribute('data-theme'), 'dark');
+  assert.equal(storage.get(storageKey), leaderboardBeforeThemeToggle);
 }})().catch(error => {{
   console.error(error);
   process.exitCode = 1;

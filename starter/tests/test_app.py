@@ -39,8 +39,8 @@ def test_index_route_renders_existing_game_controls(client):
     assert b'id="hint-count"' in response.data
     assert b'id="game-timer"' in response.data
     assert b'id="leaderboard-entries"' in response.data
-    assert b'id="game-timer"' in response.data
-    assert b'id="leaderboard-entries"' in response.data
+    assert b'id="theme-toggle"' in response.data
+    assert b'aria-pressed="false"' in response.data
 
 
 @pytest.mark.parametrize(
@@ -336,3 +336,22 @@ def test_new_game_frontend_requests_selected_difficulty(client):
     assert response.status_code == 200
     assert b"document.getElementById('difficulty').value" in response.data
     assert b"/new?difficulty=${encodeURIComponent(difficulty)}" in response.data
+
+
+def test_stylesheet_includes_theme_state_and_responsive_hooks(client):
+    response = client.get("/static/styles.css")
+
+    assert response.status_code == 200
+    for selector in (
+        b":root[data-theme=\"dark\"]",
+        b".sudoku-cell.box-alt",
+        b".sudoku-cell.prefilled",
+        b".sudoku-cell.hinted",
+        b".sudoku-cell.invalid",
+        b".sudoku-cell.incorrect",
+        b"outline: 3px solid var(--invalid-outline)",
+        b"@media (max-width: 480px)",
+        b"calc(100vw - 32px)",
+        b".leaderboard-scroll",
+    ):
+        assert selector in response.data

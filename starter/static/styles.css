@@ -1,97 +1,184 @@
+:root {
+    color-scheme: light;
+    --page-bg: #f4f4f4;
+    --text-color: #252525;
+    --surface: #ffffff;
+    --cell-bg: #ffffff;
+    --cell-alt-bg: #eaf2f7;
+    --cell-border: #8a969e;
+    --grid-border: #303a40;
+    --prefilled-bg: #dce3e7;
+    --prefilled-text: #202a30;
+    --hinted-bg: #c8e6c9;
+    --hinted-text: #174d20;
+    --invalid-bg: #ffb7ad;
+    --invalid-outline: #a3180c;
+    --incorrect-bg: #ffe1a8;
+    --control-bg: #1769aa;
+    --control-hover: #0e507f;
+    --control-text: #ffffff;
+    --focus-ring: #005fcc;
+    --error-text: #a3180c;
+    --success-text: #176329;
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --page-bg: #171c20;
+    --text-color: #f2f5f7;
+    --surface: #252d33;
+    --cell-bg: #303a42;
+    --cell-alt-bg: #3a4852;
+    --cell-border: #9eabb3;
+    --grid-border: #e0e8ed;
+    --prefilled-bg: #59666f;
+    --prefilled-text: #ffffff;
+    --hinted-bg: #315b3a;
+    --hinted-text: #e4ffe8;
+    --invalid-bg: #762c26;
+    --invalid-outline: #ffb2a8;
+    --incorrect-bg: #6b501f;
+    --control-bg: #1769aa;
+    --control-hover: #2487d0;
+    --control-text: #ffffff;
+    --focus-ring: #8fc7ff;
+    --error-text: #ffb2a8;
+    --success-text: #a5e8ae;
+}
+
 body {
     font-family: Arial, sans-serif;
-    background: #f4f4f4;
+    background: var(--page-bg);
+    color: var(--text-color);
     text-align: center;
     margin: 0;
-    padding: 0;
+    padding: 0 12px;
 }
 
 h1 {
     margin-top: 30px;
-    color: #333;
+    color: var(--text-color);
 }
 
 #sudoku-board {
     display: inline-block;
     margin: 30px auto;
-    border: 4px solid #333;
-    background: #fff;
+    width: min(calc(100vw - 32px), 432px);
+    box-sizing: border-box;
+    border: 4px solid var(--grid-border);
+    background: var(--surface);
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .sudoku-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(9, minmax(0, 1fr));
 }
 
 .sudoku-cell {
-    width: 40px;
-    height: 40px;
-    border: 1px solid #bbb;
+    width: 100%;
+    aspect-ratio: 1;
+    height: auto;
+    min-width: 0;
+    box-sizing: border-box;
+    border: 1px solid var(--cell-border);
     text-align: center;
-    font-size: 20px;
+    font-size: clamp(14px, 4.6vw, 20px);
     outline: none;
-    background: #fafafa;
+    background: var(--cell-bg);
+    color: var(--text-color);
     transition: background 0.2s;
 }
 
 .sudoku-cell:focus {
-    background: #e0f7fa;
+    position: relative;
+    z-index: 1;
+    outline: 3px solid var(--focus-ring);
+    outline-offset: -3px;
+}
+
+.sudoku-cell.box-alt {
+    background: var(--cell-alt-bg);
 }
 
 .sudoku-cell.prefilled {
-    background: #e0e0e0;
+    background: var(--prefilled-bg);
     font-weight: bold;
-    color: #333;
+    color: var(--prefilled-text);
 }
 
 .sudoku-cell.hinted {
-    background: #c8e6c9;
+    background: var(--hinted-bg);
     font-weight: bold;
-    color: #1b5e20;
+    color: var(--hinted-text);
 }
 
 .sudoku-cell.incorrect {
-    background: #ffcdd2;
+    background: var(--incorrect-bg);
+    color: var(--text-color);
 }
 
 .sudoku-cell.invalid {
-    background: #ff8a80;
+    background: var(--invalid-bg);
+    color: var(--text-color);
+    outline: 3px solid var(--invalid-outline);
+    outline-offset: -3px;
+    z-index: 2;
 }
 
 .sudoku-cell:nth-child(3),
 .sudoku-cell:nth-child(6) {
-    border-right: 3px solid #333;
+    border-right: 3px solid var(--grid-border);
 }
 
 .sudoku-row:nth-child(3) .sudoku-cell,
 .sudoku-row:nth-child(6) .sudoku-cell {
-    border-bottom: 3px solid #333;
+    border-bottom: 3px solid var(--grid-border);
 }
 
 .controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    max-width: 900px;
     margin: 20px auto;
 }
 
 button {
     padding: 8px 18px;
-    margin: 0 8px;
+    margin: 0;
     font-size: 16px;
     border: none;
-    background: #1976d2;
-    color: #fff;
+    background: var(--control-bg);
+    color: var(--control-text);
     border-radius: 4px;
     cursor: pointer;
     transition: background 0.2s;
 }
 
 button:hover {
-    background: #1565c0;
+    background: var(--control-hover);
+}
+
+button:focus-visible,
+select:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
+}
+
+select {
+    padding: 8px;
+    border: 1px solid var(--cell-border);
+    background: var(--surface);
+    color: var(--text-color);
 }
 
 #message {
-    margin-left: 20px;
+    flex-basis: 100%;
     font-size: 16px;
-    color: #d32f2f;
+    color: var(--error-text);
 }
 
 #game-timer {
@@ -102,13 +189,13 @@ button:hover {
 }
 
 .leaderboard {
-    width: min(100% - 32px, 560px);
+    width: min(calc(100% - 32px), 560px);
     margin: 28px auto;
 }
 
 .leaderboard h2 {
     margin-bottom: 10px;
-    color: #333;
+    color: var(--text-color);
 }
 
 .leaderboard-scroll {
@@ -118,21 +205,36 @@ button:hover {
 .leaderboard table {
     width: 100%;
     border-collapse: collapse;
-    background: #fff;
+    background: var(--surface);
+    color: var(--text-color);
 }
 
 .leaderboard th,
 .leaderboard td {
     padding: 8px 10px;
-    border: 1px solid #bbb;
+    border: 1px solid var(--cell-border);
     text-align: left;
 }
 
 .leaderboard th {
-    background: #e0e0e0;
+    background: var(--prefilled-bg);
 }
 
 @media (max-width: 480px) {
+    #sudoku-board {
+        width: min(calc(100vw - 32px), 432px);
+        margin: 20px auto;
+    }
+
+    .controls {
+        gap: 8px;
+    }
+
+    .controls button {
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+
     .leaderboard th,
     .leaderboard td {
         padding: 7px 6px;
