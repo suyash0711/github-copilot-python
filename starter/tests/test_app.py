@@ -37,6 +37,10 @@ def test_index_route_renders_existing_game_controls(client):
     assert b'id="check-solution"' in response.data
     assert b'id="get-hint"' in response.data
     assert b'id="hint-count"' in response.data
+    assert b'id="game-timer"' in response.data
+    assert b'id="leaderboard-entries"' in response.data
+    assert b'id="game-timer"' in response.data
+    assert b'id="leaderboard-entries"' in response.data
 
 
 @pytest.mark.parametrize(

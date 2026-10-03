@@ -1,6 +1,14 @@
 // Client-side rendering and interaction for the Flask-backed Sudoku
 const SIZE = 9;
+const LEADERBOARD_KEY = 'flask-sudoku.leaderboard.v1';
+const DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
 let puzzle = [];
+let currentDifficulty = 'medium';
+let hintsUsed = 0;
+let timerStartedAt = null;
+let elapsedTimeMs = 0;
+let timerInterval = null;
+let gameCompleted = false;
 
 function createBoardElement() {
   const boardDiv = document.getElementById('sudoku-board');
@@ -58,6 +66,115 @@ function renderPuzzle(puz) {
       }
     }
   }
+}
+
+function formatTime(timeMs) {
+  const totalSeconds = Math.floor(timeMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+  const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function updateTimerDisplay() {
+  const elapsed = timerStartedAt === null
+    ? elapsedTimeMs
+    : performance.now() - timerStartedAt;
+  document.getElementById('game-timer').textContent = `Time: ${formatTime(elapsed)}`;
+}
+
+function startTimer() {
+  if (timerInterval !== null) clearInterval(timerInterval);
+  elapsedTimeMs = 0;
+  timerStartedAt = performance.now();
+  timerInterval = setInterval(updateTimerDisplay, 1000);
+  updateTimerDisplay();
+}
+
+function stopTimer() {
+  if (timerStartedAt !== null) {
+    elapsedTimeMs = Math.max(0, performance.now() - timerStartedAt);
+  }
+  if (timerInterval !== null) clearInterval(timerInterval);
+  timerInterval = null;
+  timerStartedAt = null;
+  updateTimerDisplay();
+  return elapsedTimeMs;
+}
+
+function isValidLeaderboardRecord(record) {
+  return record !== null
+    && typeof record === 'object'
+    && typeof record.name === 'string'
+    && record.name.trim().length > 0
+    && typeof record.timeMs === 'number'
+    && Number.isFinite(record.timeMs)
+    && record.timeMs >= 0
+    && DIFFICULTIES.has(record.difficulty)
+    && Number.isInteger(record.hintsUsed)
+    && record.hintsUsed >= 0;
+}
+
+function readLeaderboard() {
+  try {
+    const stored = localStorage.getItem(LEADERBOARD_KEY);
+    if (stored === null) return [];
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isValidLeaderboardRecord).map(record => ({
+      name: record.name.trim(),
+      timeMs: record.timeMs,
+      difficulty: record.difficulty,
+      hintsUsed: record.hintsUsed
+    })).sort((left, right) => left.timeMs - right.timeMs).slice(0, 10);
+  } catch (_error) {
+    return [];
+  }
+}
+
+function renderLeaderboard(records = readLeaderboard()) {
+  const body = document.getElementById('leaderboard-entries');
+  body.replaceChildren();
+  for (const record of records) {
+    const row = document.createElement('tr');
+    const values = [
+      record.name,
+      formatTime(record.timeMs),
+      record.difficulty[0].toUpperCase() + record.difficulty.slice(1),
+      String(record.hintsUsed)
+    ];
+    for (const value of values) {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.appendChild(cell);
+    }
+    body.appendChild(row);
+  }
+}
+
+function saveLeaderboard(records) {
+  try {
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(records));
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function recordCompletion(timeMs) {
+  const name = prompt('Puzzle solved. Enter your name for the leaderboard:');
+  if (name === null || !name.trim()) return;
+
+  const records = readLeaderboard();
+  records.push({
+    name: name.trim(),
+    timeMs,
+    difficulty: currentDifficulty,
+    hintsUsed
+  });
+  records.sort((left, right) => left.timeMs - right.timeMs);
+  const topRecords = records.slice(0, 10);
+  saveLeaderboard(topRecords);
+  renderLeaderboard(topRecords);
 }
 
 function getBoardValues(inputs) {
@@ -124,8 +241,6 @@ function updateConflictFeedback(inputs) {
 }
 
 async function newGame() {
-  document.getElementById('message').innerText = '';
-  document.getElementById('hint-count').innerText = 'Hints used: 0';
   const difficulty = document.getElementById('difficulty').value;
   const res = await fetch(`/new?difficulty=${encodeURIComponent(difficulty)}`);
   const data = await res.json();
@@ -134,7 +249,12 @@ async function newGame() {
     return;
   }
   renderPuzzle(data.puzzle);
+  currentDifficulty = difficulty;
+  hintsUsed = 0;
+  gameCompleted = false;
+  document.getElementById('hint-count').innerText = 'Hints used: 0';
   document.getElementById('message').innerText = '';
+  startTimer();
 }
 
 async function requestHint() {
@@ -147,6 +267,9 @@ async function requestHint() {
   });
   const data = await res.json();
   const message = document.getElementById('message');
+  if (Number.isInteger(data.hints_used) && data.hints_used >= 0) {
+    hintsUsed = data.hints_used;
+  }
   document.getElementById('hint-count').innerText = `Hints used: ${data.hints_used}`;
   if (!res.ok) {
     message.style.color = '#d32f2f';
@@ -188,6 +311,11 @@ async function checkSolution() {
     inp.classList.toggle('incorrect', incorrect.has(idx));
   }
   if (data.solved === true) {
+    if (!gameCompleted) {
+      gameCompleted = true;
+      const completionTime = stopTimer();
+      recordCompletion(completionTime);
+    }
     msg.style.color = '#388e3c';
     msg.innerText = 'Congratulations! You solved it!';
   } else {
@@ -201,6 +329,7 @@ window.addEventListener('load', () => {
   document.getElementById('new-game').addEventListener('click', newGame);
   document.getElementById('check-solution').addEventListener('click', checkSolution);
   document.getElementById('get-hint').addEventListener('click', requestHint);
+  renderLeaderboard();
   // initialize
   newGame();
 });

@@ -93,3 +93,49 @@ button:hover {
     font-size: 16px;
     color: #d32f2f;
 }
+
+#game-timer {
+    margin: 12px auto;
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: bold;
+}
+
+.leaderboard {
+    width: min(100% - 32px, 560px);
+    margin: 28px auto;
+}
+
+.leaderboard h2 {
+    margin-bottom: 10px;
+    color: #333;
+}
+
+.leaderboard-scroll {
+    overflow-x: auto;
+}
+
+.leaderboard table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+}
+
+.leaderboard th,
+.leaderboard td {
+    padding: 8px 10px;
+    border: 1px solid #bbb;
+    text-align: left;
+}
+
+.leaderboard th {
+    background: #e0e0e0;
+}
+
+@media (max-width: 480px) {
+    .leaderboard th,
+    .leaderboard td {
+        padding: 7px 6px;
+        font-size: 0.9rem;
+    }
+}

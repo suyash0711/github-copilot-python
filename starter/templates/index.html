@@ -21,6 +21,23 @@
     <span id="hint-count">Hints used: 0</span>
     <span id="message"></span>
   </div>
+  <p id="game-timer" aria-live="off">Time: 00:00</p>
+  <section class="leaderboard" aria-labelledby="leaderboard-title">
+    <h2 id="leaderboard-title">Top 10</h2>
+    <div class="leaderboard-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Player</th>
+            <th scope="col">Time</th>
+            <th scope="col">Difficulty</th>
+            <th scope="col">Hints</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboard-entries"></tbody>
+      </table>
+    </div>
+  </section>
   <script src="/static/main.js"></script>
 </body>
 </html>

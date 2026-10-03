@@ -22,6 +22,7 @@ function makeElement(tagName) {{
   const classes = new Set();
   let className = '';
   let inputValue = '';
+  let textContent = '';
   const element = {{
     tagName,
     children: [],
@@ -30,7 +31,9 @@ function makeElement(tagName) {{
     listeners: {{}},
     style: {{}},
     innerText: '',
+    value: '',
     appendChild(child) {{ this.children.push(child); }},
+    replaceChildren(...children) {{ this.children = children; }},
     addEventListener(name, handler) {{ this.listeners[name] = handler; }},
     getElementsByTagName(name) {{
       const matches = this.tagName === name ? [this] : [];
@@ -61,6 +64,10 @@ function makeElement(tagName) {{
     get() {{ return inputValue; }},
     set(value) {{ inputValue = String(value); }}
   }});
+  Object.defineProperty(element, 'textContent', {{
+    get() {{ return textContent; }},
+    set(value) {{ textContent = String(value); }}
+  }});
   Object.defineProperty(element, 'innerHTML', {{
     set() {{ this.children = []; }}
   }});
@@ -70,18 +77,44 @@ function makeElement(tagName) {{
 const board = makeElement('div');
 const message = makeElement('span');
 const hintCount = makeElement('span');
+const timerDisplay = makeElement('p');
+const leaderboardBody = makeElement('tbody');
+const difficulty = makeElement('select');
+difficulty.value = 'medium';
 const document = {{
   createElement: makeElement,
   getElementById(id) {{
     if (id === 'sudoku-board') return board;
     if (id === 'hint-count') return hintCount;
+    if (id === 'game-timer') return timerDisplay;
+    if (id === 'leaderboard-entries') return leaderboardBody;
+    if (id === 'difficulty') return difficulty;
     return message;
   }}
 }};
-const context = {{ document, window: {{ addEventListener() {{}} }} }};
+let clockNow = 0;
+let nextIntervalId = 1;
+const intervals = new Map();
+const storage = new Map();
+let storageFails = false;
+let promptedName = null;
+let promptCalls = 0;
+const localStorage = {{
+  getItem(key) {{ if (storageFails) throw new Error('storage unavailable'); return storage.get(key) ?? null; }},
+  setItem(key, value) {{ if (storageFails) throw new Error('storage unavailable'); storage.set(key, value); }}
+}};
+const context = {{
+  document,
+  window: {{ addEventListener() {{}} }},
+  performance: {{ now: () => clockNow }},
+  setInterval(callback, delay) {{ const id = nextIntervalId++; intervals.set(id, {{ callback, delay }}); return id; }},
+  clearInterval(id) {{ intervals.delete(id); }},
+  localStorage,
+  prompt() {{ promptCalls++; return promptedName; }}
+}};
 vm.createContext(context);
 const source = fs.readFileSync({script_path}, 'utf8');
-vm.runInContext(source + '\\nglobalThis.gameplay = {{ renderPuzzle, findConflictingCells, checkSolution, requestHint }};', context);
+vm.runInContext(source + '\\nglobalThis.gameplay = {{ renderPuzzle, findConflictingCells, checkSolution, requestHint, newGame, readLeaderboard, renderLeaderboard, recordCompletion, leaderboardKey: LEADERBOARD_KEY, getState: () => ({{ timerStartedAt, elapsedTimeMs, timerInterval, gameCompleted, hintsUsed, currentDifficulty }}) }};', context);
 
 const puzzle = Array.from({{ length: 9 }}, () => Array(9).fill(0));
 puzzle[0][0] = 5;
@@ -153,6 +186,133 @@ assert.deepEqual([...context.gameplay.findConflictingCells(boardValues)].sort((a
   hintedCell.value = '8';
   hintedCell.listeners.input({{ target: hintedCell }});
   assert.equal(hintedCell.value, '4');
+
+  context.fetch = async () => ({{ ok: false, json: async () => ({{ error: 'failed' }}) }});
+  await context.gameplay.newGame();
+  assert.equal(context.gameplay.getState().timerStartedAt, null);
+  assert.equal(intervals.size, 0);
+
+  clockNow = 1000;
+  difficulty.value = 'easy';
+  context.fetch = async () => ({{ ok: true, json: async () => ({{ puzzle }}) }});
+  await context.gameplay.newGame();
+  assert.equal(context.gameplay.getState().timerStartedAt, 1000);
+  assert.equal(timerDisplay.textContent, 'Time: 00:00');
+  assert.equal(intervals.size, 1);
+  clockNow = 7000;
+  [...intervals.values()][0].callback();
+  assert.equal(timerDisplay.textContent, 'Time: 00:06');
+
+  clockNow = 9000;
+  difficulty.value = 'hard';
+  await context.gameplay.newGame();
+  assert.equal(context.gameplay.getState().timerStartedAt, 9000);
+  assert.equal(context.gameplay.getState().elapsedTimeMs, 0);
+  assert.equal(intervals.size, 1);
+
+  const storageKey = context.gameplay.leaderboardKey;
+  context.fetch = async () => ({{ json: async () => ({{ incorrect: [], solved: false }}) }});
+  await context.gameplay.checkSolution();
+  assert.equal(promptCalls, 1);
+  assert.equal(storage.has(storageKey), false);
+  context.fetch = async () => ({{ json: async () => ({{ incorrect: [[0, 1]], solved: false }}) }});
+  await context.gameplay.checkSolution();
+  assert.equal(storage.has(storageKey), false);
+
+  context.fetch = async () => ({{
+    ok: true,
+    json: async () => ({{ row: 0, col: 1, value: 6, hints_used: 2 }})
+  }});
+  await context.gameplay.requestHint();
+  assert.equal(context.gameplay.getState().hintsUsed, 2);
+  clockNow = 12500;
+  promptedName = '<img src=x onerror=alert(1)>';
+  const leaderboardName = promptedName;
+  context.fetch = async () => ({{ json: async () => ({{ incorrect: [], solved: true }}) }});
+  await context.gameplay.checkSolution();
+  const savedRecords = JSON.parse(storage.get(storageKey));
+  assert.equal(savedRecords.length, 1);
+  assert.deepEqual(Object.keys(savedRecords[0]).sort(), ['difficulty', 'hintsUsed', 'name', 'timeMs']);
+  assert.deepEqual(savedRecords[0], {{
+    name: promptedName,
+    timeMs: 3500,
+    difficulty: 'hard',
+    hintsUsed: 2
+  }});
+  assert.equal(storage.size, 1);
+  assert.equal(storage.get(storageKey).includes('solution'), false);
+  assert.equal(storage.get(storageKey).includes('puzzle'), false);
+  assert.equal(intervals.size, 0);
+  assert.equal(timerDisplay.textContent, 'Time: 00:03');
+  assert.equal(leaderboardBody.children[0].children[0].textContent, promptedName);
+  assert.equal(promptCalls, 2);
+
+  await context.gameplay.checkSolution();
+  assert.equal(promptCalls, 2);
+  assert.equal(JSON.parse(storage.get(storageKey)).length, 1);
+
+  clockNow = 15000;
+  context.fetch = async () => ({{ ok: true, json: async () => ({{ puzzle }}) }});
+  await context.gameplay.newGame();
+  promptedName = '   ';
+  context.fetch = async () => ({{ json: async () => ({{ incorrect: [], solved: true }}) }});
+  await context.gameplay.checkSolution();
+  assert.equal(promptCalls, 3);
+  assert.equal(JSON.parse(storage.get(storageKey)).length, 1);
+  assert.equal(intervals.size, 0);
+  await context.gameplay.checkSolution();
+  assert.equal(promptCalls, 3);
+
+  leaderboardBody.replaceChildren();
+  context.gameplay.renderLeaderboard();
+  assert.equal(leaderboardBody.children.length, 1);
+  assert.equal(leaderboardBody.children[0].children[0].textContent, leaderboardName);
+
+  const records = Array.from({{ length: 12 }}, (_, index) => ({{
+    name: `Player ${{index}}`,
+    timeMs: 12000 - index * 1000,
+    difficulty: 'medium',
+    hintsUsed: index
+  }}));
+  storage.set(storageKey, JSON.stringify(records));
+  const topRecords = context.gameplay.readLeaderboard();
+  assert.equal(topRecords.length, 10);
+  assert.equal(topRecords[0].timeMs, 1000);
+  assert.equal(topRecords[9].timeMs, 10000);
+  context.gameplay.renderLeaderboard(topRecords);
+  assert.equal(leaderboardBody.children.length, 10);
+  promptedName = 'Fast finisher';
+  context.gameplay.recordCompletion(500);
+  const savedTopRecords = JSON.parse(storage.get(storageKey));
+  assert.equal(savedTopRecords.length, 10);
+  assert.equal(savedTopRecords[0].timeMs, 500);
+  assert.equal(savedTopRecords[9].timeMs, 9000);
+
+  storage.set(storageKey, '{{broken json');
+  assert.deepEqual([...context.gameplay.readLeaderboard()], []);
+  storage.set(storageKey, JSON.stringify({{ records }}));
+  assert.deepEqual([...context.gameplay.readLeaderboard()], []);
+  storage.set(storageKey, JSON.stringify([
+    records[0],
+    {{ name: 'Missing fields' }},
+    {{ name: 'Bad difficulty', timeMs: 1, difficulty: 'expert', hintsUsed: 0 }},
+    {{ name: 'Bad time', timeMs: -1, difficulty: 'easy', hintsUsed: 0 }},
+    {{ name: 'Non-finite time', timeMs: 'Infinity', difficulty: 'easy', hintsUsed: 0 }},
+    {{ name: 'Bad hints', timeMs: 10, difficulty: 'easy', hintsUsed: 1.5 }}
+  ]));
+  assert.equal(context.gameplay.readLeaderboard().length, 1);
+
+  storageFails = true;
+  assert.deepEqual([...context.gameplay.readLeaderboard()], []);
+  context.gameplay.renderLeaderboard();
+  clockNow = 20000;
+  context.fetch = async () => ({{ ok: true, json: async () => ({{ puzzle }}) }});
+  await context.gameplay.newGame();
+  promptedName = 'Storage unavailable';
+  context.fetch = async () => ({{ json: async () => ({{ incorrect: [], solved: true }}) }});
+  await context.gameplay.checkSolution();
+  assert.equal(context.gameplay.getState().gameCompleted, true);
+  assert.equal(intervals.size, 0);
 }})().catch(error => {{
   console.error(error);
   process.exitCode = 1;
