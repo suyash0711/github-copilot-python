@@ -69,14 +69,19 @@ function makeElement(tagName) {{
 
 const board = makeElement('div');
 const message = makeElement('span');
+const hintCount = makeElement('span');
 const document = {{
   createElement: makeElement,
-  getElementById(id) {{ return id === 'sudoku-board' ? board : message; }}
+  getElementById(id) {{
+    if (id === 'sudoku-board') return board;
+    if (id === 'hint-count') return hintCount;
+    return message;
+  }}
 }};
 const context = {{ document, window: {{ addEventListener() {{}} }} }};
 vm.createContext(context);
 const source = fs.readFileSync({script_path}, 'utf8');
-vm.runInContext(source + '\\nglobalThis.gameplay = {{ renderPuzzle, findConflictingCells, checkSolution }};', context);
+vm.runInContext(source + '\\nglobalThis.gameplay = {{ renderPuzzle, findConflictingCells, checkSolution, requestHint }};', context);
 
 const puzzle = Array.from({{ length: 9 }}, () => Array(9).fill(0));
 puzzle[0][0] = 5;
@@ -126,6 +131,28 @@ assert.deepEqual([...context.gameplay.findConflictingCells(boardValues)].sort((a
   context.fetch = async () => ({{ json: async () => ({{ incorrect: [], solved: true }}) }});
   await context.gameplay.checkSolution();
   assert.match(message.innerText, /congratulations/i);
+
+  let hintRequest;
+  context.fetch = async (url, options) => {{
+    hintRequest = {{ url, options }};
+    return {{
+      ok: true,
+      json: async () => ({{ row: 1, col: 1, value: 4, hints_used: 1 }})
+    }};
+  }};
+  await context.gameplay.requestHint();
+  const hintedCell = inputs[10];
+  assert.equal(hintRequest.url, '/hint');
+  assert.equal(hintRequest.options.method, 'POST');
+  assert.deepEqual(Object.keys(JSON.parse(hintRequest.options.body)), ['board']);
+  assert.equal(hintedCell.value, '4');
+  assert.equal(hintedCell.disabled, true);
+  assert.equal(hintedCell.classList.contains('hinted'), true);
+  assert.equal(hintedCell.classList.contains('prefilled'), false);
+  assert.equal(hintCount.innerText, 'Hints used: 1');
+  hintedCell.value = '8';
+  hintedCell.listeners.input({{ target: hintedCell }});
+  assert.equal(hintedCell.value, '4');
 }})().catch(error => {{
   console.error(error);
   process.exitCode = 1;

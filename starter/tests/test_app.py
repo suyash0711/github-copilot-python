@@ -15,10 +15,14 @@ def make_solved_board():
 @pytest.fixture
 def client():
     app_module.app.config.update(TESTING=True)
-    app_module.CURRENT.update(puzzle=None, solution=None)
+    app_module.CURRENT.update(
+        puzzle=None, solution=None, hints_used=0, hinted_cells=set()
+    )
     with app_module.app.test_client() as test_client:
         yield test_client
-    app_module.CURRENT.update(puzzle=None, solution=None)
+    app_module.CURRENT.update(
+        puzzle=None, solution=None, hints_used=0, hinted_cells=set()
+    )
 
 
 def test_index_route_renders_existing_game_controls(client):
@@ -31,6 +35,8 @@ def test_index_route_renders_existing_game_controls(client):
     assert b'id="sudoku-board"' in response.data
     assert b'id="new-game"' in response.data
     assert b'id="check-solution"' in response.data
+    assert b'id="get-hint"' in response.data
+    assert b'id="hint-count"' in response.data
 
 
 @pytest.mark.parametrize(
@@ -57,7 +63,12 @@ def test_new_route_returns_generated_puzzle_and_stores_game(
     assert response.status_code == 200
     assert response.get_json() == {"puzzle": puzzle}
     assert received_clues == [expected_clues]
-    assert app_module.CURRENT == {"puzzle": puzzle, "solution": solution}
+    assert app_module.CURRENT == {
+        "puzzle": puzzle,
+        "solution": solution,
+        "hints_used": 0,
+        "hinted_cells": set(),
+    }
 
 
 @pytest.mark.parametrize(
@@ -165,6 +176,145 @@ def test_check_route_reports_coordinates_that_differ_from_solution(client):
     assert response.get_json() == {
         "incorrect": [[0, 0], [8, 8]],
         "solved": False,
+    }
+
+
+def test_check_route_accepts_correctly_hinted_values(client):
+    solution = make_solved_board()
+    puzzle = [row.copy() for row in solution]
+    puzzle[0][0] = sudoku_logic.EMPTY
+    app_module.CURRENT.update(puzzle=puzzle, solution=solution)
+    board = [row.copy() for row in puzzle]
+
+    hint_response = client.post("/hint", json={"board": board})
+    hint = hint_response.get_json()
+    board[hint["row"]][hint["col"]] = hint["value"]
+    check_response = client.post("/check", json={"board": board})
+
+    assert hint_response.status_code == 200
+    assert check_response.get_json() == {"incorrect": [], "solved": True}
+
+
+def test_hint_returns_one_originally_empty_solution_value_without_solution_grid(client):
+    solution = make_solved_board()
+    puzzle = [row.copy() for row in solution]
+    puzzle[0][0] = sudoku_logic.EMPTY
+    puzzle[0][1] = sudoku_logic.EMPTY
+    board = [row.copy() for row in puzzle]
+    board[1][1] = sudoku_logic.EMPTY
+    app_module.CURRENT.update(puzzle=puzzle, solution=solution)
+
+    response = client.post("/hint", json={"board": board})
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert set(data) == {"row", "col", "value", "hints_used"}
+    assert puzzle[data["row"]][data["col"]] == sudoku_logic.EMPTY
+    assert board[data["row"]][data["col"]] == sudoku_logic.EMPTY
+    assert (data["row"], data["col"]) != (1, 1)
+    assert data["value"] == solution[data["row"]][data["col"]]
+    assert data["hints_used"] == 1
+    assert "solution" not in data
+    assert solution not in data.values()
+
+
+def test_successive_hints_target_different_cells_and_increment_count(client):
+    solution = make_solved_board()
+    puzzle = [row.copy() for row in solution]
+    puzzle[0][0] = sudoku_logic.EMPTY
+    puzzle[0][1] = sudoku_logic.EMPTY
+    board = [row.copy() for row in puzzle]
+    app_module.CURRENT.update(puzzle=puzzle, solution=solution)
+
+    first_response = client.post("/hint", json={"board": board})
+    first_hint = first_response.get_json()
+    board[first_hint["row"]][first_hint["col"]] = first_hint["value"]
+    second_response = client.post("/hint", json={"board": board})
+    second_hint = second_response.get_json()
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert (first_hint["row"], first_hint["col"]) != (
+        second_hint["row"], second_hint["col"]
+    )
+    assert first_hint["hints_used"] == 1
+    assert second_hint["hints_used"] == 2
+    assert app_module.CURRENT["hints_used"] == 2
+
+
+@pytest.mark.parametrize(
+    "board",
+    [None, {}, [[0]], [[0 for _ in range(9)] for _ in range(8)]],
+)
+def test_hint_rejects_invalid_or_missing_board_without_incrementing_count(
+    client, board
+):
+    solution = make_solved_board()
+    puzzle = [row.copy() for row in solution]
+    puzzle[0][0] = sudoku_logic.EMPTY
+    app_module.CURRENT.update(puzzle=puzzle, solution=solution)
+
+    response = client.post("/hint", json={"board": board})
+
+    assert response.status_code == 400
+    assert response.get_json()["hints_used"] == 0
+    assert app_module.CURRENT["hints_used"] == 0
+
+
+def test_hint_rejects_values_outside_zero_to_nine(client):
+    solution = make_solved_board()
+    puzzle = [row.copy() for row in solution]
+    puzzle[0][0] = sudoku_logic.EMPTY
+    board = [row.copy() for row in puzzle]
+    board[0][0] = 10
+    app_module.CURRENT.update(puzzle=puzzle, solution=solution)
+
+    response = client.post("/hint", json={"board": board})
+
+    assert response.status_code == 400
+    assert response.get_json()["hints_used"] == 0
+
+
+def test_hint_returns_conflict_when_board_is_complete_without_incrementing(client):
+    solution = make_solved_board()
+    puzzle = [row.copy() for row in solution]
+    puzzle[0][0] = sudoku_logic.EMPTY
+    app_module.CURRENT.update(puzzle=puzzle, solution=solution)
+
+    response = client.post("/hint", json={"board": solution})
+
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "error": "No empty cells are available for a hint",
+        "hints_used": 0,
+    }
+    assert app_module.CURRENT["hints_used"] == 0
+
+
+def test_new_game_resets_hint_count_and_tracked_coordinates(client, monkeypatch):
+    puzzle = [[0 for _ in range(sudoku_logic.SIZE)] for _ in range(sudoku_logic.SIZE)]
+    solution = make_solved_board()
+    app_module.CURRENT.update(hints_used=3, hinted_cells={(0, 0), (0, 1)})
+    monkeypatch.setattr(
+        app_module.sudoku_logic,
+        "generate_puzzle",
+        lambda clues: (puzzle, solution),
+    )
+
+    response = client.get("/new")
+
+    assert response.status_code == 200
+    assert app_module.CURRENT["hints_used"] == 0
+    assert app_module.CURRENT["hinted_cells"] == set()
+
+
+def test_hint_requires_an_active_game(client):
+    response = client.post("/hint", json={"board": make_solved_board()})
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "error": "No game in progress",
+        "hints_used": 0,
     }
 
 

@@ -18,7 +18,7 @@ function createBoardElement() {
       input.addEventListener('input', (e) => {
         const message = document.getElementById('message');
         if (e.target.disabled) {
-          e.target.value = puzzle[i][j] || '';
+          e.target.value = e.target.dataset.lockedValue || puzzle[i][j] || '';
           return;
         }
         const val = e.target.value.replace(/[^1-9]/g, '');
@@ -39,6 +39,7 @@ function createBoardElement() {
 function renderPuzzle(puz) {
   puzzle = puz;
   createBoardElement();
+  document.getElementById('hint-count').innerText = 'Hints used: 0';
   const boardDiv = document.getElementById('sudoku-board');
   const inputs = boardDiv.getElementsByTagName('input');
   for (let i = 0; i < SIZE; i++) {
@@ -49,6 +50,7 @@ function renderPuzzle(puz) {
       if (val !== 0) {
         inp.value = val;
         inp.disabled = true;
+        inp.dataset.lockedValue = val;
         inp.className += ' prefilled';
       } else {
         inp.value = '';
@@ -123,6 +125,7 @@ function updateConflictFeedback(inputs) {
 
 async function newGame() {
   document.getElementById('message').innerText = '';
+  document.getElementById('hint-count').innerText = 'Hints used: 0';
   const difficulty = document.getElementById('difficulty').value;
   const res = await fetch(`/new?difficulty=${encodeURIComponent(difficulty)}`);
   const data = await res.json();
@@ -132,6 +135,34 @@ async function newGame() {
   }
   renderPuzzle(data.puzzle);
   document.getElementById('message').innerText = '';
+}
+
+async function requestHint() {
+  const boardDiv = document.getElementById('sudoku-board');
+  const inputs = boardDiv.getElementsByTagName('input');
+  const res = await fetch('/hint', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({board: getBoardValues(inputs)})
+  });
+  const data = await res.json();
+  const message = document.getElementById('message');
+  document.getElementById('hint-count').innerText = `Hints used: ${data.hints_used}`;
+  if (!res.ok) {
+    message.style.color = '#d32f2f';
+    message.innerText = data.error || 'No hint is available.';
+    return;
+  }
+
+  const idx = data.row * SIZE + data.col;
+  const input = inputs[idx];
+  input.value = data.value;
+  input.disabled = true;
+  input.dataset.lockedValue = data.value;
+  input.classList.remove('invalid', 'incorrect');
+  input.classList.add('hinted');
+  message.innerText = '';
+  updateConflictFeedback(inputs);
 }
 
 async function checkSolution() {
@@ -169,6 +200,7 @@ async function checkSolution() {
 window.addEventListener('load', () => {
   document.getElementById('new-game').addEventListener('click', newGame);
   document.getElementById('check-solution').addEventListener('click', checkSolution);
+  document.getElementById('get-hint').addEventListener('click', requestHint);
   // initialize
   newGame();
 });
