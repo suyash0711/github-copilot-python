@@ -31,16 +31,7 @@ def assert_valid_sudoku(board):
 
 
 def make_deterministic_random(monkeypatch):
-    calls = 0
-
-    def next_coordinate(limit):
-        nonlocal calls
-        cell_index = calls // 2
-        calls += 1
-        return cell_index // sudoku_logic.SIZE if calls % 2 else cell_index % limit
-
     monkeypatch.setattr(sudoku_logic.random, "shuffle", lambda values: None)
-    monkeypatch.setattr(sudoku_logic.random, "randrange", next_coordinate)
 
 
 def test_create_empty_board_returns_nine_by_nine_zero_grid():
@@ -92,6 +83,25 @@ def test_fill_board_completes_an_empty_board_with_valid_sudoku(monkeypatch):
     assert_valid_sudoku(board)
 
 
+def test_count_solutions_returns_one_for_a_completed_valid_board():
+    board = make_solved_board()
+
+    assert sudoku_logic.count_solutions(board) == 1
+
+
+def test_count_solutions_returns_zero_for_a_contradictory_board():
+    board = make_solved_board()
+    board[0][0] = board[0][1]
+
+    assert sudoku_logic.count_solutions(board) == 0
+
+
+def test_count_solutions_stops_at_two_for_an_underconstrained_board():
+    board = sudoku_logic.create_empty_board()
+
+    assert sudoku_logic.count_solutions(board) == 2
+
+
 def test_remove_cells_leaves_the_requested_number_of_clues(monkeypatch):
     make_deterministic_random(monkeypatch)
     board = make_solved_board()
@@ -99,6 +109,39 @@ def test_remove_cells_leaves_the_requested_number_of_clues(monkeypatch):
     sudoku_logic.remove_cells(board, clues=40)
 
     assert sum(value != sudoku_logic.EMPTY for row in board for value in row) == 40
+
+
+def test_remove_cells_restores_a_clue_when_removal_is_non_unique(monkeypatch):
+    make_deterministic_random(monkeypatch)
+    board = make_solved_board()
+    original_count_solutions = sudoku_logic.count_solutions
+    rejected_removals = []
+
+    def count_with_ambiguous_first_removal(candidate_board):
+        if candidate_board[0][0] == sudoku_logic.EMPTY and not rejected_removals:
+            rejected_removals.append((0, 0))
+            return 2
+        return original_count_solutions(candidate_board)
+
+    monkeypatch.setattr(
+        sudoku_logic, "count_solutions", count_with_ambiguous_first_removal
+    )
+
+    sudoku_logic.remove_cells(board, clues=80)
+
+    assert rejected_removals == [(0, 0)]
+    assert board[0][0] == make_solved_board()[0][0]
+    assert sum(value != sudoku_logic.EMPTY for row in board for value in row) == 80
+
+
+@pytest.mark.parametrize("clues", [16, 82, True, 35.5])
+def test_remove_cells_rejects_invalid_clue_counts(clues):
+    board = make_solved_board()
+
+    with pytest.raises(ValueError):
+        sudoku_logic.remove_cells(board, clues)
+
+    assert board == make_solved_board()
 
 
 @pytest.mark.parametrize("clues", [35, 47])
@@ -111,6 +154,7 @@ def test_generate_puzzle_returns_matching_puzzle_and_valid_solution(
 
     assert_valid_sudoku(solution)
     assert sum(value != sudoku_logic.EMPTY for row in puzzle for value in row) == clues
+    assert sudoku_logic.count_solutions(puzzle) == 1
     for row in range(sudoku_logic.SIZE):
         for col in range(sudoku_logic.SIZE):
             if puzzle[row][col] != sudoku_logic.EMPTY:
