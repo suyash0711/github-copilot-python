@@ -137,7 +137,19 @@ def test_check_route_returns_no_incorrect_cells_for_matching_solution(client):
     response = client.post("/check", json={"board": solution})
 
     assert response.status_code == 200
-    assert response.get_json() == {"incorrect": []}
+    assert response.get_json() == {"incorrect": [], "solved": True}
+
+
+def test_check_route_does_not_mark_an_incomplete_board_as_solved(client):
+    solution = make_solved_board()
+    board = [row.copy() for row in solution]
+    board[0][0] = sudoku_logic.EMPTY
+    app_module.CURRENT["solution"] = solution
+
+    response = client.post("/check", json={"board": board})
+
+    assert response.status_code == 200
+    assert response.get_json() == {"incorrect": [[0, 0]], "solved": False}
 
 
 def test_check_route_reports_coordinates_that_differ_from_solution(client):
@@ -150,7 +162,10 @@ def test_check_route_reports_coordinates_that_differ_from_solution(client):
     response = client.post("/check", json={"board": board})
 
     assert response.status_code == 200
-    assert response.get_json() == {"incorrect": [[0, 0], [8, 8]]}
+    assert response.get_json() == {
+        "incorrect": [[0, 0], [8, 8]],
+        "solved": False,
+    }
 
 
 @pytest.mark.parametrize("asset_path", ["/static/main.js", "/static/styles.css"])

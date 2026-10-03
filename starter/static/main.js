@@ -16,8 +16,19 @@ function createBoardElement() {
       input.dataset.row = i;
       input.dataset.col = j;
       input.addEventListener('input', (e) => {
+        const message = document.getElementById('message');
+        if (e.target.disabled) {
+          e.target.value = puzzle[i][j] || '';
+          return;
+        }
         const val = e.target.value.replace(/[^1-9]/g, '');
         e.target.value = val;
+        const inputs = boardDiv.getElementsByTagName('input');
+        for (const cell of inputs) {
+          if (!cell.disabled) cell.classList.remove('incorrect');
+        }
+        message.innerText = '';
+        updateConflictFeedback(inputs);
       });
       rowDiv.appendChild(input);
     }
@@ -47,7 +58,71 @@ function renderPuzzle(puz) {
   }
 }
 
+function getBoardValues(inputs) {
+  const board = [];
+  for (let row = 0; row < SIZE; row++) {
+    board[row] = [];
+    for (let col = 0; col < SIZE; col++) {
+      const value = inputs[row * SIZE + col].value;
+      board[row][col] = value ? parseInt(value, 10) : 0;
+    }
+  }
+  return board;
+}
+
+function findConflictingCells(board) {
+  const conflicts = new Set();
+  for (let row = 0; row < SIZE; row++) {
+    for (let col = 0; col < SIZE; col++) {
+      const value = board[row][col];
+      if (!value) continue;
+
+      for (let otherCol = col + 1; otherCol < SIZE; otherCol++) {
+        if (board[row][otherCol] === value) {
+          conflicts.add(row * SIZE + col);
+          conflicts.add(row * SIZE + otherCol);
+        }
+      }
+      for (let otherRow = row + 1; otherRow < SIZE; otherRow++) {
+        if (board[otherRow][col] === value) {
+          conflicts.add(row * SIZE + col);
+          conflicts.add(otherRow * SIZE + col);
+        }
+      }
+
+      const boxRow = Math.floor(row / 3) * 3;
+      const boxCol = Math.floor(col / 3) * 3;
+      for (let otherRow = boxRow; otherRow < boxRow + 3; otherRow++) {
+        for (let otherCol = boxCol; otherCol < boxCol + 3; otherCol++) {
+          if (
+            (otherRow > row || (otherRow === row && otherCol > col)) &&
+            board[otherRow][otherCol] === value
+          ) {
+            conflicts.add(row * SIZE + col);
+            conflicts.add(otherRow * SIZE + otherCol);
+          }
+        }
+      }
+    }
+  }
+  return conflicts;
+}
+
+function updateConflictFeedback(inputs) {
+  const conflicts = findConflictingCells(getBoardValues(inputs));
+  for (let idx = 0; idx < inputs.length; idx++) {
+    const input = inputs[idx];
+    if (!input.disabled) input.classList.toggle('invalid', conflicts.has(idx));
+  }
+  if (conflicts.size) {
+    const message = document.getElementById('message');
+    message.style.color = '#d32f2f';
+    message.innerText = 'Conflicting entries are highlighted.';
+  }
+}
+
 async function newGame() {
+  document.getElementById('message').innerText = '';
   const difficulty = document.getElementById('difficulty').value;
   const res = await fetch(`/new?difficulty=${encodeURIComponent(difficulty)}`);
   const data = await res.json();
@@ -62,15 +137,7 @@ async function newGame() {
 async function checkSolution() {
   const boardDiv = document.getElementById('sudoku-board');
   const inputs = boardDiv.getElementsByTagName('input');
-  const board = [];
-  for (let i = 0; i < SIZE; i++) {
-    board[i] = [];
-    for (let j = 0; j < SIZE; j++) {
-      const idx = i * SIZE + j;
-      const val = inputs[idx].value;
-      board[i][j] = val ? parseInt(val, 10) : 0;
-    }
-  }
+  const board = getBoardValues(inputs);
   const res = await fetch('/check', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -87,17 +154,14 @@ async function checkSolution() {
   for (let idx = 0; idx < inputs.length; idx++) {
     const inp = inputs[idx];
     if (inp.disabled) continue;
-    inp.className = 'sudoku-cell';
-    if (incorrect.has(idx)) {
-      inp.className = 'sudoku-cell incorrect';
-    }
+    inp.classList.toggle('incorrect', incorrect.has(idx));
   }
-  if (incorrect.size === 0) {
+  if (data.solved === true) {
     msg.style.color = '#388e3c';
     msg.innerText = 'Congratulations! You solved it!';
   } else {
     msg.style.color = '#d32f2f';
-    msg.innerText = 'Some cells are incorrect.';
+    msg.innerText = 'The puzzle is incomplete or contains incorrect entries.';
   }
 }
 
